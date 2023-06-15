@@ -1,5 +1,5 @@
 /*
-  Arduino Digital Clock V0.1
+  Arduino Digital Clock V0.2
 
   Author: 
     Daniel Martinez
