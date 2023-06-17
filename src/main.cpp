@@ -6,7 +6,7 @@
     dagmtzs@gmail.com
   
   Date: 
-    15/06/2023
+    16/06/2023
 */
 
 #include <Arduino.h>
@@ -15,12 +15,15 @@
 #define MINUTES_PER_HOUR 60
 #define HOURS_PER_DAY 24
 #define STARTUP_DELAY_MS 50
+#define LED_DISPLAY_DELAY 1
 #define DEBOUNCE_THRESHOLD_MS 20
-#define PRESS_THRESHOLD_MS 330
-#define REPEAT_THRESHOLD_MS 200
-#define BUTTON_SETUP_BIT B10000000
-#define BUTTON_PLUS_BIT B01000000
-#define BUTTON_MINUS_BIT B00100000
+#define PRESS_THRESHOLD_MS 300
+#define REPEAT_THRESHOLD_MS 66
+#define BUTTON_SETUP_BIT  B00000001
+#define BUTTON_PLUS_BIT   B00000010
+#define BUTTON_MINUS_BIT  B00000100
+#define SETUP_BUTTONS_MASK B00000111
+
 
 typedef struct 
 {
@@ -88,7 +91,8 @@ void read_buttons(void);
 void update_time(const time_units_t, const sign_t, const bool, const bool);
 void print_time(void);
 void update_settings(void);
-
+void write_BCD(uint8_t, const uint8_t);
+void update_digits(void);
 
 void setup() 
 {
@@ -105,10 +109,16 @@ void setup()
   // Enable Overflow Interrupt
   TIMSK1 |= ( 1<<TOIE1 );
 
-  // Set pins 5 through 7 as inputs, let the rest of the register unchanged
-  DDRD = DDRD & ~( BUTTON_SETUP_BIT | BUTTON_PLUS_BIT | BUTTON_MINUS_BIT );
-  // Set pins 5 through 7 HIGH (to set the pull-up resistors), let the rest of the register unchanged
-  PORTD = PORTD | ( BUTTON_SETUP_BIT | BUTTON_PLUS_BIT | BUTTON_MINUS_BIT );
+  // Set pins A0 through A3 as inputs, let the rest of the register unchanged
+  DDRC = DDRC & ~( BUTTON_SETUP_BIT | BUTTON_PLUS_BIT | BUTTON_MINUS_BIT );
+  // Set pins A0 through A3 HIGH (to set the pull-up resistors), let the rest of the register unchanged
+  PORTC = PORTC | ( BUTTON_SETUP_BIT | BUTTON_PLUS_BIT | BUTTON_MINUS_BIT );
+
+  // Set pins 8 through 13 as outputs
+  DDRB |= B00111111;
+
+  // Set pins 2 through 7 as outputs
+  DDRD |= B11111100;
 
   delay(STARTUP_DELAY_MS);
   g_timeControl.clockState = RUNNING;
@@ -130,12 +140,13 @@ void loop()
   
   read_buttons();
   update_settings();
+  update_digits();
 
 }
 
 void read_buttons()
 {
-   g_buttonControl.currentButtonReading = (~PIND) & B11100000;
+   g_buttonControl.currentButtonReading = (~PINC) & SETUP_BUTTONS_MASK;
   
   switch ( g_buttonControl.currentButtonState)
   {
@@ -181,6 +192,7 @@ void read_buttons()
     {
       g_buttonControl.currentButtonState = WAIT;
       g_buttonControl.lastButtonState = SINGLE;
+      g_buttonControl.lastPressTime = millis();
     }
     else 
     {
@@ -196,6 +208,7 @@ void read_buttons()
     {
       g_buttonControl.currentButtonState = WAIT;
       g_buttonControl.lastButtonState = HOLD;
+      g_buttonControl.lastPressTime = millis();
     }
     else 
     {
@@ -438,5 +451,100 @@ void update_settings()
           break;
       }
     break;
+  }
+}
+
+void write_BCD( uint8_t number, const uint8_t digit )
+{
+  uint8_t portbBuffer = PORTB;
+  uint8_t portdBuffer = PORTD;
+  
+  portbBuffer &= B00110000;
+  portdBuffer &= B00000011;
+
+  number &= B00001111;
+  portbBuffer |= number;
+
+  switch (digit)
+  {
+  case 6:
+    portdBuffer |= B00000100;
+    break;
+
+  case 5:
+    portdBuffer |= B00001000;
+    break;
+
+  case 4:
+    portdBuffer |= B00010000;
+    break;
+
+  case 3:
+    portdBuffer |= B00100000;
+    break;
+
+  case 2:
+    portdBuffer |= B01000000;
+    break;
+
+  case 1:
+    portdBuffer |= B10000000;
+    break;
+  
+  default:
+    portbBuffer &= B11110000;
+    portdBuffer |= B00000000;
+    break;
+  }
+
+  PORTD = portdBuffer;
+  PORTB = portbBuffer;
+}
+
+void update_digits()
+{
+  if(g_timeControl.clockState == SETUP)
+  {
+    switch (g_units_to_set)
+    {        
+    case SECONDS:
+      write_BCD(g_timeControl.timeString[7], 1);
+      delay(LED_DISPLAY_DELAY);
+      write_BCD(g_timeControl.timeString[6], 2);
+      delay(LED_DISPLAY_DELAY);
+      break;
+
+    case MINUTES:
+      write_BCD(g_timeControl.timeString[4], 3);
+      delay(LED_DISPLAY_DELAY);
+      write_BCD(g_timeControl.timeString[3], 4);
+      delay(LED_DISPLAY_DELAY);
+      break;
+    
+    case HOURS:
+      write_BCD(g_timeControl.timeString[1], 5);
+      delay(LED_DISPLAY_DELAY);
+      write_BCD(g_timeControl.timeString[0], 6);
+      delay(LED_DISPLAY_DELAY);
+      break;
+    
+    default:
+      break;
+    }                         
+  }
+  else 
+  {
+  write_BCD(g_timeControl.timeString[7], 1);
+  delay(LED_DISPLAY_DELAY);
+  write_BCD(g_timeControl.timeString[6], 2);
+  delay(LED_DISPLAY_DELAY);
+  write_BCD(g_timeControl.timeString[4], 3);
+  delay(LED_DISPLAY_DELAY);
+  write_BCD(g_timeControl.timeString[3], 4);
+  delay(LED_DISPLAY_DELAY);
+  write_BCD(g_timeControl.timeString[1], 5);
+  delay(LED_DISPLAY_DELAY);
+  write_BCD(g_timeControl.timeString[0], 6);
+  delay(LED_DISPLAY_DELAY);
   }
 }
